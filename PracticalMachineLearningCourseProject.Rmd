@@ -1,0 +1,132 @@
+---
+title: "Peer-graded Assignment Practical Machine Learning"
+author: "Tine Mattheus"
+date: "6/10/2018"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+library(caret)
+```
+
+## Executive Summary
+
+The goal of this project is to predict on 20 test cases the way these 20 subjects exercise: sitting down, standing up, standing, walking and sitting. The model used for this prediction is based on accelerometer data collected for 8 hours of 4 people. This data is downloaded from the Coursera course website, and Coursera retrieved the data from http://groupware.les.inf.puc-rio.br/har (Velloso et al.). There are many variables available in the dataset and the goal is to build a model with only these features that impact the way of exercising. Therefore, the variables not having any impact nor the variables for which any data is available nor the variables with zero or near zero variance are taken into account. A training and testing set are then created. Two  models, a random forest model and a model based on prediction with trees, are built using the training dataset and then tested on the testing dataset. Comparing the out-of-sample error of both models shows that the random forest model is more accurate, so it was decided to use that model to predict the way of exercising on the 20 test cases.
+
+## Loading data - Exploratory data analysis
+
+### Loading data
+It is assumed that the training and testing data file are already downloaded in the working directory.
+
+```{r}
+data <- read.csv("./trainingData.csv") 
+dataTest <- read.csv("./testingData.csv")
+dim(data)
+dim(dataTest)
+```
+
+### Data pre-processing
+The training set contains 19,622 observations and 160 features that can be used to create a model. The first seven columns can be omitted because these contain no numerical data and aren't useful in the prediction. Let's then check whether there are columns with missing values and which of the other features have zero or near zero variance. It is also important to check whether the number of instances for each value of the feature 'classe' are equally divided.
+
+``` {r}
+## Remove the first 7 columns
+data <- data[,-c(1:7)]
+## Keep the columns with no missing values
+data <- data[ , colSums(is.na(data)) == 0]
+## Remove the variables with no or near zero variability
+nzv <- nearZeroVar(data, saveMetrics = TRUE)
+data <- data[,!nzv$zeroVar & !nzv$nzv]
+dim(data)
+
+## Restrict the columns in the testing data set to the same ones as in the training data set
+dataTest <- dataTest[,colnames(dataTest) %in% colnames(data)]
+
+## Number of instances per value of classe
+table(data$classe)
+```
+It can be concluded that the number of instances per value of the feature 'classe' are equally divided.
+
+### Data partitioning
+
+Now that we only have 53 columns left, the data set will be split into a training and testing data set. 
+
+``` {r}
+set.seed(1234)
+inTrain <- createDataPartition(data$classe, p = 0.75, list = F)
+training <- data[inTrain,]
+testing <- data[-inTrain,]
+dim(training)
+dim(testing)
+```
+
+## Machine Learning Algorithms
+
+First, cross-validation is used because this technique results in a more precise estimate of the true out-of-sample error. The number of folds is set to 5. Then two machine learning algorithms are tested and compared. The out-of-sample error (1 - accuracy) will determine which algorithm will be used to predict the outcome on the test data.
+
+### Random Forest
+
+To avoid a long processing time, parallel processing is used.
+
+``` {r}
+set.seed(1234)
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+train_CR <- trainControl(method = "cv", number = 5, allowParallel = T)
+modRF <- train(classe ~ ., data = training, method = "rf", trControl = train_CR)
+stopCluster(cluster)
+registerDoSEQ()
+print(modRF)
+```
+
+``` {r}
+print(modRF$finalModel)
+```
+
+``` {r}
+predictionsRF <- predict(modRF, newdata = testing)
+confusionMatrix(predictionsRF, testing$classe)
+```
+The accuracy of this model is 99.4 %.
+
+### Predicting with trees
+
+
+``` {r}
+set.seed(1234)
+train_CR <- trainControl(method = "cv", number = 5)
+modTrees <- train(classe ~ ., data = training, method = "rpart", trControl = train_CR)
+print(modTrees)
+``` 
+
+``` {r}
+print(modTrees$finalModel)
+```
+
+``` {r}
+predictionsTrees <- predict(modTrees, newdata = testing)
+confusionMatrix(predictionsTrees, testing$classe)
+```
+
+The accuracy of this model is equal to 49.5%.
+
+
+### Chosing the model
+
+The out-of-sample error (1 - accuracy) of the random forest model is 0.006 and of the model predicted with trees it is 0.505. As such, the random forest model will be used to predict the test cases.
+
+## Testing the model
+
+In this paragraph the model is tested on the test data set.
+
+```{r}
+predictions <- predict(modRF, dataTest)
+predictions
+```
+
+
+## References
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
